@@ -9,6 +9,9 @@ exp/
 cmake*
 cmake*/*
 
+Dataset/
+exp_custom_warehouse/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -259,6 +259,8 @@ def rollout_func(
     rollout_length,
     **kwargs
 ):
+    Logger.info("rollout_func start")
+
     s=time.time()
     """
     TODO(jh): modify document
@@ -317,8 +319,9 @@ def rollout_func(
     if WPPL_mode is None:
         # really bad code design...
         WPPL_mode=env.cfg["WPPL"]["mode"]
-    if collect_data:
-        assert WPPL_mode in ["PIBT-RL-LNS-Guide","PIBT-RL-LNS","PIBT-LNS"]
+    # if collect_data:
+    #     assert WPPL_mode in ["PIBT-RL-LNS-Guide","PIBT-RL-LNS","PIBT-LNS"]
+    Logger.info("rollout_func: WPPL mode is {}".format(WPPL_mode))
     assert WPPL_mode in ["PIBT-RL", "PIBT", "PIBT-LNS","PIBT-RL-LNS","PIBT-RL-LNS-Guide"]
     old_pibt_func=env.get_pibt_func()
     if WPPL_mode not in ["PIBT-RL","PIBT"]:
@@ -429,7 +432,9 @@ def rollout_func(
     # collect until rollout_length
     # TODO: we need to carefully deal with the termination of the environment
     # because we need to discard the last step data if the episode is terminated
+    Logger.debug("rollout_func: env {} start rollout with length {}".format(env.id, rollout_length))
     for step in range(rollout_length):
+        Logger.debug("rollout_func: env {} step {}".format(env.id, step))
         if env.is_terminated():
             # it must be not eval
             if eval:
@@ -437,6 +442,8 @@ def rollout_func(
             
             assert len(step_data_list)>=1, "step_data_list should not be empty here"
 
+            Logger.debug("Environment terminated at step {}, processing final episode data".format(step))
+            
             # we have a step data in the list, and we also have the last step.
             policy_inputs = rename_fields(
                 step_data, 
@@ -463,6 +470,7 @@ def rollout_func(
             step_data=update_fields(step_data,select_fields(policy_outputs,[EpisodeKey.STATE_VALUE]))
             episode = pack_episode(step_data_list, step_data, rollout_desc, gae_gamma=env.gae_gamma, gae_lambda=env.gae_lambda)
             episodes.append(episode)
+            Logger.debug("Packed episode with {} steps".format(len(step_data_list)))
             # clear step_data_list
             step_data_list=[]
         
@@ -475,10 +483,12 @@ def rollout_func(
             if collect_log:
                 result["log"]=env.get_episode_log()
             results.append(result)
+            Logger.debug("Added episode result, stats: {}".format(stats))
             
             step_data = env_reset(env,behavior_policies,custom_reset_config,sync_rnd_val,eval)
             # we add a shallow_copy to ensure correctness in case that step_data is modified by some in-place operation.
             env.set_prev_step_data(shallow_copy(step_data))
+            Logger.debug("Environment reset for new episode")
         # prepare policy input
         
         # if step==0:
@@ -488,6 +498,7 @@ def rollout_func(
         #     observation=observation.reshape(observation.shape[0],4,11,11)
         #     print(observation[:,2])
         
+        Logger.debug("Step {}: Preparing policy inputs".format(step))
         policy_inputs = rename_fields(
             step_data, 
             [EpisodeKey.NEXT_OBS, EpisodeKey.NEXT_GLOBAL_OBS], 
@@ -512,6 +523,7 @@ def rollout_func(
                 )
 
         global_timer.time("inference_start", "inference_end", "inference")
+        Logger.debug("Step {}: Policy inference completed for {} agents".format(step, len(behavior_policies)))
 
         # NOTE(rivers): there are actually two ways we can do,
         # first we can sample with the actions from PIBT
@@ -543,6 +555,7 @@ def rollout_func(
         
         
         if WPPL_mode in ["PIBT-LNS","PIBT-RL-LNS","PIBT-RL-LNS-Guide"]: # or (WPPL_mode=="PIBT-RL-LNS-Guide" and not eval):
+            Logger.debug("Step {}: Computing WPPL guidance actions for mode {}".format(step, WPPL_mode))
             guiding_policy_outputs={}
             global_timer.record("inference_guidance_start")
             guiding_policy_outputs[rollout_desc.agent_id]=wppl.compute_action(
@@ -555,24 +568,31 @@ def rollout_func(
                 num_robots=env.num_robots
             )
             global_timer.time("inference_guidance_start", "inference_guidance_end", "inference_guidance")
+            Logger.debug("Step {}: WPPL guidance completed".format(step))
                     
             if collect_data:
                 actions_list.append(guiding_policy_outputs[rollout_desc.agent_id][EpisodeKey.ACTION])
+                Logger.debug("Step {}: Collected guidance action for data".format(step))
             
+        Logger.debug("Step {}: Selecting actions for mode {}, eval={}".format(step, WPPL_mode, eval))
         if eval:
             if WPPL_mode in ["PIBT-LNS","PIBT-RL-LNS"]:
-                actions = select_fields(guiding_policy_outputs, [EpisodeKey.ACTION])                
+                actions = select_fields(guiding_policy_outputs, [EpisodeKey.ACTION])
+                Logger.debug("Step {}: Using guiding policy actions for evaluation".format(step))                
             elif WPPL_mode in ["PIBT-RL-LNS-Guide","PIBT-RL","PIBT"]:
                 actions = select_fields(policy_outputs, [EpisodeKey.ACTION])
+                Logger.debug("Step {}: Using policy outputs for evaluation".format(step))
             else:
                 raise NotImplementedError("unknown wppl mode to obtain actions")
         else:
             # awalys use actions from the policy without wppl wrapper
             actions = select_fields(policy_outputs, [EpisodeKey.ACTION])
+            Logger.debug("Step {}: Using policy outputs for training".format(step))
 
         global_timer.record("env_step_start")
         env_rets = env.step(actions)
         global_timer.time("env_step_start", "env_step_end", "env_step")
+        Logger.debug("Step {}: Environment step completed".format(step))
         
         # Modify the reward here
         # if WPPL_mode=="PIBT-RL-LNS-Guide" and not eval:
@@ -600,10 +620,12 @@ def rollout_func(
             target_positions_list.append(target_positions)
         
             priorities_list.append(env.priorities.clone().cpu().numpy())
+            Logger.debug("Step {}: Collected position and priority data".format(step))
                 
         if verbose:
             Logger.info("env {} step {}'s stats: {}".format(env.id,step, env.get_episode_stats()))
 
+        Logger.debug("Step {}: Updating step data with rewards and policy outputs".format(step))
         # record data after env step
         step_data = update_fields(
             step_data, select_fields(env_rets, [EpisodeKey.REWARD])
@@ -626,10 +648,12 @@ def rollout_func(
                     [EpisodeKey.GUIDING_ACTION],
                 ),
             )
+            Logger.debug("Step {}: Added guiding actions to step data".format(step))
 
         if not eval:
             # save data of trained agent for training
             step_data_list.append(step_data[rollout_desc.agent_id])
+            Logger.debug("Step {}: Added step data to training list (length: {})".format(step, len(step_data_list)))
                     
         step_data = update_fields(
             step_data, select_fields(env_rets, [EpisodeKey.DONE])
@@ -646,6 +670,7 @@ def rollout_func(
         
         # we add a shallow_copy to ensure correctness in case that step_data is modified by some in-place operation.
         env.set_prev_step_data(shallow_copy(step_data))
+        Logger.debug("Step {}: Prepared data for next step".format(step))
     
     if not eval:            #collect after rollout done
         assert len(step_data_list)>=1, "step_data_list should not be empty here"

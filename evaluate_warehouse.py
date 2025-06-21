@@ -488,7 +488,6 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
                     
                     # Convert positions to solution format for metrics computation
                     solution = compute_solution_from_positions(positions, goals, map_height, map_width)
-                    print(solution)
                     
                     # Calculate episode length from actual data
                     actual_episode_length = len(positions) - 1  # Subtract 1 as first position is initial state

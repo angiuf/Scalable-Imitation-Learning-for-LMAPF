@@ -4,22 +4,19 @@
 
 # Configuration
 MODEL_PATH="pretrained_models/ltf_reeval/v3/IL/best"  # Update this path as needed
-NUM_TESTS=10  # Reduced for testing
 ROLLOUT_LENGTH=256
 OUTPUT_FOLDER="exp_custom_warehouse"
+WPPL_MODE="PIBT-RL"  # Default WPPL mode, can be changed in the loop
 
 # Test different WPPL modes
-for WPPL_mode in PIBT PIBT-RL PIBT-IL; do
-    echo "Evaluating with WPPL mode: $WPPL_mode"
-    
-    # Run the evaluation
-    python evaluate_warehouse.py \
-        --model_path $MODEL_PATH \
-        --WPPL_mode $WPPL_mode \
-        --rollout_length $ROLLOUT_LENGTH \
-        --output_folder $OUTPUT_FOLDER \
-        --num_processes 1 \
-        --num_devices 1
-done
+
+# Run the evaluation
+python evaluate_warehouse.py \
+    --model_path $MODEL_PATH \
+    --WPPL_mode $WPPL_MODE \
+    --rollout_length $ROLLOUT_LENGTH \
+    --output_folder $OUTPUT_FOLDER \
+    --num_processes 1 \
+    --num_devices 1
 
 echo "Warehouse evaluation completed!"

@@ -16,6 +16,7 @@ import csv
 import datetime
 import tempfile
 import traceback
+import shutil
 from pathlib import Path
 from tqdm import tqdm
 from default_configs import default_configs
@@ -59,8 +60,26 @@ def get_map_configurations():
         {
             "map_name": "15_15_simple_warehouse",
             "size": 15,
-            "n_tests": 1,  # Only 1 test to minimize memory usage
-            "list_num_agents": [4]  # Only 4 agents for debugging
+            "n_tests": 200,
+            "list_num_agents": [4, 8, 12, 16, 20, 22]
+        },
+        {
+            "map_name": "50_55_simple_warehouse",
+            "size": 50,
+            "n_tests": 200,
+            "list_num_agents": [4,8,16,32,64,128,256]
+        },
+        {
+            "map_name": "50_55_long_shelves",
+            "size": 50,
+            "n_tests": 200,
+            "list_num_agents": [4,8,16,32,64,128,256]
+        },
+        {
+            "map_name": "50_55_open_space_warehouse_bottom",
+            "size": 50,
+            "n_tests": 200,
+            "list_num_agents": [4,8,16,32,64,128,256]
         }
     ]
 
@@ -155,20 +174,19 @@ def compute_solution_from_positions(positions, goals, map_height, map_width):
     timesteps, num_agents = positions.shape
     solution = [[] for _ in range(num_agents)]
 
-    solutions_lengths = [0] * num_agents
-    
+    done = [False] * num_agents
+
     for timestep in range(timesteps):
         for agent_idx in range(num_agents):
+            if done[agent_idx]:
+                continue
             flat_pos = positions[timestep][agent_idx]
             row = flat_pos // map_height
             col = flat_pos % map_width
             solution[agent_idx].append((row, col))
-            if timestep > 0 and positions[timestep][agent_idx] != positions[timestep-1][agent_idx] and positions[timestep][agent_idx] == goals[agent_idx]:
-                solutions_lengths[agent_idx] = max(solutions_lengths[agent_idx], len(solution[agent_idx]))
-    
-    max_solutions_lengths = max(solutions_lengths)
+            if positions[timestep][agent_idx] == goals[agent_idx]:
+                done[agent_idx] = True
 
-    solution = [sol[:max_solutions_lengths] for sol in solution]
     return solution
 
 
@@ -189,14 +207,15 @@ def check_agents_reached_goals(positions, goals, map_width):
     positions = np.array(positions)
     goals = np.array(goals)
     
-    # Check final positions against goals
-    final_positions = positions[-1]  # Last timestep
+    done = [False] * len(goals)
+
+    for timestep_position in positions:
+        for agent_idx in range(len(timestep_position)):
+            flat_pos = timestep_position[agent_idx]
+            if flat_pos == goals[agent_idx]:
+                done[agent_idx] = True
     
-    for agent_idx in range(len(goals)):
-        if final_positions[agent_idx] != goals[agent_idx]:
-            return False
-    
-    return True
+    return all(done)
 
 def get_csv_logger(model_dir, default_model_name):
     """Create CSV logger for results."""
@@ -295,11 +314,11 @@ def convert_to_mapf_mode(env, start_positions, goal_positions):
 
 def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, device_ref, 
                    map_weights_path, WPPL_mode, rollout_length):
-    """Run a single test case."""
-    from light_malib.envs.LMAPF.map import Map
+    """Run a single test case using a pre-created environment."""
     
+    temp_dir = None
     try:
-        # Load map and scenario
+         # Load map and scenario
         map_data, start_positions, goal_positions = load_map_and_scenario(
             dataset_dir, map_name, num_agents, test_id
         )
@@ -348,7 +367,7 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
             raise FileNotFoundError(f"Map file not found: {map_file_path}")
         
         map_file = str(map_file_path)
-        Logger.info(f"Using existing map file: {map_file}")
+        Logger.debug(f"Using existing map file: {map_file}")
         
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -357,8 +376,8 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
             start_file, goal_file = create_temporary_start_goal_files(
                 start_positions, goal_positions, temp_path, map_data.shape[1]
             )
-            Logger.info(f"Created temporary start file: {start_file}")
-            Logger.info(f"Created temporary goal file: {goal_file}")
+            Logger.debug(f"Created temporary start file: {start_file}")
+            Logger.debug(f"Created temporary goal file: {goal_file}")
             
             # Create environment configuration
             env_config = create_mapf_environment_config(
@@ -368,7 +387,7 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
 
             # Use the map_name parameter directly since we're using the actual dataset map
             # (not extracting from temporary file path)
-            Logger.info(f"Using map: {map_name} with {num_agents} agents")
+            Logger.debug(f"Using map: {map_name} with {num_agents} agents")
             
             # Create environment and add our map to the map manager
             env = MultiLMAPFEnv("test", 42, env_config, device_ref, None, None)
@@ -383,7 +402,7 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
             # Add the map to the environment's map manager
             # env.map_manager.add_map(temp_map)
             
-            Logger.info(f"Available maps: {list(env.map_manager.maps_dict.keys())}")
+            Logger.debug(f"Available maps: {list(env.map_manager.maps_dict.keys())}")
             
             # Set the current environment to use our map
             # env.set_curr_env2(map_name, num_agents, verbose=False)
@@ -403,29 +422,29 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
             # Run evaluation
             start_time = time.time()
             rollout_desc = RolloutDesc(test_id, "agent_0", None, None, None, None, None)
-            
-            rollout_results = rollout_func(
-                eval=True,
-                rollout_worker=None,
-                rollout_desc=rollout_desc,
-                env=env,
-                behavior_policies=behavior_policies,
-                data_server=None,
-                rollout_length=rollout_length,
-                render=False,
-                verbose=False,
-                collect_data=True,
-                collect_log=False,
-                device=device_ref,
-                instance=(map_name, num_agents)
-            )
-            
-            elapsed_time = time.time() - start_time
+        
+        rollout_results = rollout_func(
+            eval=True,
+            rollout_worker=None,
+            rollout_desc=rollout_desc,
+            env=env,
+            behavior_policies=behavior_policies,
+            data_server=None,
+            rollout_length=rollout_length,
+            render=False,
+            verbose=False,
+            collect_data=True,
+            collect_log=False,
+            device=device_ref,
+            instance=(map_name, num_agents)
+        )
+        
+        elapsed_time = time.time() - start_time
 
-            Logger.debug(f"Rollout results for test {test_id}: {rollout_results}")
+        Logger.debug(f"Rollout results for test {test_id}: {rollout_results}")
 
-            # Extract results
-            if rollout_results and "results" in rollout_results and len(rollout_results["results"]) > 0:
+        # Extract results
+        if rollout_results and "results" in rollout_results and len(rollout_results["results"]) > 0:
                 result_data = rollout_results["results"][0]
                 stats = result_data.get("stats", {}).get("agent_0", {})
                 imitation_data = rollout_results.get('imitation_data', {})
@@ -443,13 +462,13 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
                 Logger.debug(f"Positions shape: {np.array(positions).shape if len(positions) > 0 else 'None'}")
                 Logger.debug(f"Goals shape: {np.array(goals).shape if len(goals) > 0 else 'None'}")
                               
-                print(f"Positions: {positions}")
-                print(f"Goals: {goals}")
+                Logger.debug(f"Positions: {positions}")
+                Logger.debug(f"Goals: {goals}")
                 # Primary method: Check if agents reached their goals using position data
                 if len(positions) > 0 and len(goals) > 0:
                     map_width = map_data.shape[1]
                     success = check_agents_reached_goals(positions, goals, map_width)
-                    Logger.info(f"Success via goal achievement check: {success}")
+                    Logger.debug(f"Success via goal achievement check: {success}")
                 
                 # Initialize variables
                 solution = []
@@ -462,9 +481,15 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
                     
                     # Convert positions to solution format for metrics computation
                     solution = compute_solution_from_positions(positions, goals, map_height, map_width)
+                    Logger.debug(solution)
+
                     
                     # Calculate episode length from actual data
-                    actual_episode_length = len(positions) - 1  # Subtract 1 as first position is initial state
+                    actual_episode_length = 0
+                    for agent_idx in range(len(solution)):
+                        if len(solution[agent_idx]) > 0:
+                            # Ensure the solution is not empty
+                            actual_episode_length = max(actual_episode_length, len(solution[agent_idx])-1)
                     episode_length = max(actual_episode_length, 0)
                     
                     # Calculate steps and costs for each agent (like in test_custom_env.py)
@@ -553,34 +578,34 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
                     'crashed': crashed
                 }
                 
+        else:
+            # Failed to get results - add detailed logging
+            Logger.warning(f"No valid rollout results obtained")
+            if rollout_results:
+                Logger.warning(f"Rollout results structure: {rollout_results}")
             else:
-                # Failed to get results - add detailed logging
-                Logger.warning(f"No valid rollout results obtained")
-                if rollout_results:
-                    Logger.warning(f"Rollout results structure: {rollout_results}")
-                else:
-                    Logger.warning("rollout_results is None or empty")
-                    
-                result = {
-                    'finished': False,
-                    'time': elapsed_time,
-                    'episode_length': 0,
-                    'total_steps': 0,
-                    'avg_steps': 0.0,
-                    'max_steps': 0,
-                    'min_steps': 0,
-                    'total_costs': 0,
-                    'avg_costs': 0.0,
-                    'max_costs': 0,
-                    'min_costs': 0,
-                    'agent_coll_rate': 0.0,
-                    'obstacle_coll_rate': 0.0,
-                    'total_coll_rate': 0.0,
-                    'crashed': True
-                }
-                solution = []
-            
-            return result, solution
+                Logger.warning("rollout_results is None or empty")
+                
+            result = {
+                'finished': False,
+                'time': elapsed_time,
+                'episode_length': 0,
+                'total_steps': 0,
+                'avg_steps': 0.0,
+                'max_steps': 0,
+                'min_steps': 0,
+                'total_costs': 0,
+                'avg_costs': 0.0,
+                'max_costs': 0,
+                'min_costs': 0,
+                'agent_coll_rate': 0.0,
+                'obstacle_coll_rate': 0.0,
+                'total_coll_rate': 0.0,
+                'crashed': True
+            }
+            solution = []
+        
+        return result, solution
         
     except Exception as e:
         Logger.error(f"Error in test {test_id}: {e}")
@@ -605,6 +630,10 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
             'crashed': True
         }
         return result, []
+    finally:
+        # Clean up temporary directory
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
 
 def initialize_policy(model_path, num_processes, num_devices):
     """Initialize the policy model."""
@@ -630,7 +659,12 @@ def initialize_policy(model_path, num_processes, num_devices):
     Logger.info("Policy loaded successfully")
 
 def evaluate_map_config(config, dataset_dir, output_folder, map_weights_path, WPPL_mode, rollout_length):
-    """Evaluate a single map configuration."""
+    """Evaluate a single map configuration.
+    
+    Environment is created once per map configuration to avoid the overhead of
+    recreating it for each test. The environment is reset for each test with
+    new start and goal positions.
+    """
     map_name = config["map_name"]
     size = config["size"] 
     n_tests = config["n_tests"]
@@ -682,13 +716,13 @@ def evaluate_map_config(config, dataset_dir, output_folder, map_weights_path, WP
         # Run tests
         for test_id in tqdm(range(n_tests), desc=f"{num_agents} agents"):
             try:
-                Logger.info(f"Running test {test_id} for {num_agents} agents on {map_name}")
+                Logger.debug(f"Running test {test_id} for {num_agents} agents on {map_name}")
                 result, solution = run_single_test(
                     dataset_dir, map_name, num_agents, test_id, policy, device, 
                     map_weights_path, WPPL_mode, rollout_length
                 )
                 
-                Logger.info(f"Test {test_id} completed. Success: {result['finished']}")
+                Logger.debug(f"Test {test_id} completed. Success: {result['finished']}")
                 
                 # Collect results (convert any tensors to scalars)
                 results['finished'].append(tensor_to_scalar(result['finished']))
@@ -769,6 +803,33 @@ def tensor_to_scalar(value):
     if torch.is_tensor(value):
         return value.cpu().item() if value.numel() == 1 else value.cpu().numpy()
     return value
+
+def reset_environment_for_test(env, dataset_dir, map_name, num_agents, test_id):
+    """Reset environment for a new test with different agents and start/goal positions.
+    
+    This function is called for each individual test to load the specific 
+    start and goal positions without recreating the entire environment.
+    """
+    
+    # Load map and scenario for this specific test
+    map_data, start_positions, goal_positions = load_map_and_scenario(
+        dataset_dir, map_name, num_agents, test_id
+    )
+    
+    # Create temporary directory that will be managed by the caller
+    temp_dir = tempfile.mkdtemp()
+    temp_path = Path(temp_dir)
+    
+    # Create temporary start and goal files for this test
+    start_file, goal_file = create_temporary_start_goal_files(
+        start_positions, goal_positions, temp_path, map_data.shape[1]
+    )
+    
+    # Load start and goal positions into the environment
+    env.load_starts(start_file)
+    env.load_tasks(goal_file)
+    
+    return map_data, start_positions, goal_positions, temp_dir
 
 if __name__ == "__main__":
     # Parse arguments

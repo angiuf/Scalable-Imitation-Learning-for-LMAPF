@@ -725,7 +725,7 @@ class LMAPFEnv(BaseEnv):
                 self.sync_PyShadowSystem()
             except (MemoryError, RuntimeError) as e:
                 # Disable sync if memory error occurs
-                Logger.warning(f"PyShadowSystem sync failed: {e}. Disabling sync.")
+                Logger.debug(f"PyShadowSystem sync failed: {e}. Disabling sync.")
                 self._sync_PyShadowSystem = False
             global_timer.time("sync_s","sync_e","sync")
         

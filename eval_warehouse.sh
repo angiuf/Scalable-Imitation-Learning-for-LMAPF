@@ -7,7 +7,7 @@ MODEL_FOLDER=pretrained_models/dynamic_guidance/v4/IL
 # PIBT, PIBT-RL, PIBT-LNS, PIBT-RL-LNS. 
 # PIBT-RL will load pretrained weights, PIBT will just call the original PIBT.
 # The LNS version will call LNS after PIBT initialization, used for training.
-WPPL_mode=PIBT-RL 
+WPPL_mode=PIBT-RL
 # NUM_DEVICE=1
 
 ROLLOUT_LENGTH=256

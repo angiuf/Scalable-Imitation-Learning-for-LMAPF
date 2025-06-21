@@ -716,7 +716,7 @@ def rollout_func(
         curr_positions_list=torch.stack(curr_positions_list[:-1],dim=0).to(device="cpu",dtype=torch.int32).numpy()
         target_positions_list=torch.stack(target_positions_list[:-1],dim=0).to(device="cpu",dtype=torch.int32).numpy()
         priorities_list=torch.stack(priorities_list[:-1],dim=0).to(device="cpu",dtype=torch.float32).numpy()
-        actions_list=torch.stack(actions_list,dim=0).to(device="cpu",dtype=torch.int32).numpy()
+        actions_list=torch.stack(actions_list,dim=0).to(device="cpu",dtype=torch.int32).numpy() if actions_list else np.array([])
   
         imitation_data = {
             "seed": seed,

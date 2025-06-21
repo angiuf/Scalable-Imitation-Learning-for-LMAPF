@@ -158,7 +158,7 @@ class LMAPFEnv(BaseEnv):
         self._enable_log=False
         self._check_valid=True
         
-        self._use_guiding_path=True
+        self._use_guiding_path=self.cfg.get("use_guiding_path", True)
         
         if self._use_guiding_path:
             assert not self.use_permutation
@@ -721,7 +721,12 @@ class LMAPFEnv(BaseEnv):
         
         if self._use_guiding_path and self._sync_PyShadowSystem:
             global_timer.record("sync_s")
-            self.sync_PyShadowSystem()
+            try:
+                self.sync_PyShadowSystem()
+            except (MemoryError, RuntimeError) as e:
+                # Disable sync if memory error occurs
+                Logger.warning(f"PyShadowSystem sync failed: {e}. Disabling sync.")
+                self._sync_PyShadowSystem = False
             global_timer.time("sync_s","sync_e","sync")
         
         if self._pibt_func=="solve":

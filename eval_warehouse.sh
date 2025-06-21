@@ -6,6 +6,7 @@
 MODEL_PATH="pretrained_models/ltf_reeval/v3/IL/best"  # Update this path as needed
 ROLLOUT_LENGTH=256
 OUTPUT_FOLDER="exp_custom_warehouse"
+# With PIBT-RL, the agents oscillates around the goal
 WPPL_MODE="PIBT-RL"  # Default WPPL mode, can be changed in the loop
 
 # Test different WPPL modes

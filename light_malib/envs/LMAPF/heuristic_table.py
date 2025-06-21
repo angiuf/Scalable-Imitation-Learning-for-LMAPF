@@ -121,7 +121,7 @@ class GuidedHeuristicTable:
         return heuristics, masks, local_views, offsetted_local_views
     
     def get_masks(self, offsetted_local_views):
-        masks=self.padded_graph[offsetted_local_views[...,0],offsetted_local_views[...,1]]==0
+        masks=self.padded_graph[offsetted_local_views[...,0].long(),offsetted_local_views[...,1].long()]==0
         return masks
     
     def get_distances(self, curr_positions, target_positions):        

@@ -343,11 +343,11 @@ class LMAPFEnv(BaseEnv):
             heuristics[~masks]=-1
                 
         if guiding_actions is not None:      
-            if torch.any(heuristics[torch.arange(len(guiding_actions),dtype=torch.int32,device=self.device),guiding_actions]<0):
+            if torch.any(heuristics[torch.arange(len(guiding_actions),dtype=torch.long,device=self.device),guiding_actions.long()]<0):
                 Logger.error("err! this may sometimes happen if the probability is not safely clipped above 1e-9, for example.")
             # TODO: set to 0 has the potential bug when agent will arrive the goal
-            heuristics[torch.arange(len(guiding_actions),dtype=torch.int32,device=self.device),guiding_actions]=torch.minimum(
-                heuristics[torch.arange(len(guiding_actions),dtype=torch.int32,device=self.device),guiding_actions],
+            heuristics[torch.arange(len(guiding_actions),dtype=torch.long,device=self.device),guiding_actions.long()]=torch.minimum(
+                heuristics[torch.arange(len(guiding_actions),dtype=torch.long,device=self.device),guiding_actions.long()],
                 torch.tensor(0,device=self.device,dtype=torch.float32)
             )
             
@@ -366,7 +366,7 @@ class LMAPFEnv(BaseEnv):
         return self._initialized
     
     def disable_agents(self):
-        mask=self.corner_graph[self.target_positions[...,0],self.target_positions[...,1]]
+        mask=self.corner_graph[self.target_positions[...,0].long(),self.target_positions[...,1].long()]
         disabled=torch.zeros_like(self.priorities,dtype=torch.bool,device=self.device)
         disabled[mask]=True
         # NOTE(rivers): don't use the following line! too agressive.
@@ -614,7 +614,7 @@ class LMAPFEnv(BaseEnv):
         
         # assert len(actions)==self.num_robots
         # assert actions.max()<=4 and actions.min()>=0
-        movements=self.movements[actions]
+        movements=self.movements[actions.long()]
         next_positions=self.curr_positions+movements
         global_timer.time("pibt_s","pibt_e","pibt")
         
@@ -886,15 +886,15 @@ class LMAPFEnv(BaseEnv):
         # pad with 1 = obstacle
         
         global_timer.record("get_feat_s")
-        
-        local_static_obstacle_map=self.padded_graph[offsetted_local_views[...,0],offsetted_local_views[...,1]]
-        
+
+        local_static_obstacle_map=self.padded_graph[offsetted_local_views[...,0].long(),offsetted_local_views[...,1].long()]
+
         # # Feature 2: other agents
         # # TODO: we can pre-allocate this
         global_agents_map=torch.zeros_like(self.padded_graph,dtype=torch.float32)
-        global_agents_map[self.curr_positions[:,0]+self.FOV_height//2,self.curr_positions[:,1]+self.FOV_width//2]=self.priorities
+        global_agents_map[(self.curr_positions[:,0]+self.FOV_height//2).long(),(self.curr_positions[:,1]+self.FOV_width//2).long()]=self.priorities
         # num_robots, FOV_height, FOV_width
-        local_agents_map=global_agents_map[offsetted_local_views[...,0],offsetted_local_views[...,1]]
+        local_agents_map=global_agents_map[offsetted_local_views[...,0].long(),offsetted_local_views[...,1].long()]
         # # set its own position to 0
         # local_agents_map[:,self.FOV_height//2,self.FOV_width//2]=0
         # NOTE(rivers): >0 is a bug before. we fix it.
@@ -997,11 +997,11 @@ class LMAPFEnv(BaseEnv):
         global_observations=torch.zeros(size=(1,self.num_global_channels,self.map.height,self.map.width),dtype=torch.float32,device=self.device)
         
         global_observations[0,0]=self.graph.float()
-        global_observations[0,1,self.curr_positions[:,0],self.curr_positions[:,1]]=1
-        global_observations[0,2,self.target_positions[:,0],self.target_positions[:,1]]=1     
-        
-        global_timer.time("get_gfeat_s","get_gfeat_e","get_gfeat")   
-        
+        global_observations[0,1,self.curr_positions[:,0].long(),self.curr_positions[:,1].long()]=1
+        global_observations[0,2,self.target_positions[:,0].long(),self.target_positions[:,1].long()]=1
+
+        global_timer.time("get_gfeat_s","get_gfeat_e","get_gfeat")
+
         return observations, global_observations
     
     # Maybe we should have a BFS?
@@ -1098,7 +1098,7 @@ class LMAPFEnv(BaseEnv):
         
         # check if out of bound and if collide with static obstacles
         # 0-valid, 1-invalid
-        action_masks=self.padded_graph[next_positions[...,0],next_positions[...,1]]
+        action_masks=self.padded_graph[next_positions[...,0].long(),next_positions[...,1].long()]
         
         # 1-valid, 0-invalid
         action_masks=1-action_masks.float()

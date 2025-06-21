@@ -7,6 +7,7 @@ Adapted from evaluate_copy.py to work with Dataset folder structure similar to o
 import numpy as np
 import torch
 import torch.multiprocessing as multiprocessing
+from torch.distributions import Categorical
 import time
 import os
 import argparse
@@ -17,6 +18,8 @@ import tempfile
 import traceback
 from pathlib import Path
 from tqdm import tqdm
+from default_configs import default_configs
+import sys
 
 # SILLM imports
 from light_malib.envs.LMAPF.env import MultiLMAPFEnv
@@ -56,7 +59,7 @@ def get_map_configurations():
         {
             "map_name": "15_15_simple_warehouse",
             "size": 15,
-            "n_tests": 2,  # Only 2 tests for debugging
+            "n_tests": 1,  # Only 1 test to minimize memory usage
             "list_num_agents": [4]  # Only 4 agents for debugging
         }
     ]
@@ -251,7 +254,7 @@ def create_temporary_start_goal_files(start_positions, goal_positions, temp_dir,
     return str(start_file), str(goal_file)
 
 def create_mapf_environment_config(map_file, num_agents, rollout_length, 
-                                  map_weights_path, WPPL_mode):
+                                  WPPL_mode):
     """Create environment configuration for LMAPF that works like MAPF."""
     config = {
         'rollout_length': rollout_length,
@@ -260,19 +263,21 @@ def create_mapf_environment_config(map_file, num_agents, rollout_length,
         'gae_lambda': 0.95,
         'mappo_reward': False,
         'instances': [{"map_path": map_file, "agent_bins": [num_agents]}],
+        # 'map_path': map_file,  # Use the temporary map file created earlier,
+        # 'num_robots': num_agents,  # Number of agents for this map
+        'device': 'cpu',  # Use CPU for evaluation
         # 'map_path': map_file,
         # 'num_robots': num_agents,
-        'map_weights_path': '' if map_weights_path == "NONE" else map_weights_path,
-        'learn_to_follow_maps_path': None,  # Required field
-        'agent_bins': None,  # Required field
+        'map_weights_path': '',
         'use_rank_feats': False,  # Additional field that might be needed
+        'use_guiding_path': False,  # Enable guiding path to match original behavior
         'WPPL': {
             'mode': WPPL_mode,
             'verbose': True,
-            'max_iterations': 500,
-            'num_threads': 8,
+            'max_iterations': 5000,
+            'num_threads': 1,
             'window_size': 1,  # Default window size for LMAPF
-            'time_limit': 60,  # Default time limit for LMAPF
+            'time_limit': 0.0,  # Default time limit for LMAPF
         }
     }
     
@@ -335,12 +340,18 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
         
         # Logger.info("=== END DEBUG INFO ===")
         
+        # Use existing map file from dataset instead of creating temporary one
+        dataset_path = Path(dataset_dir)
+        map_file_path = dataset_path / map_name / "input" / "map" / f"{map_name}.map"
+        
+        if not map_file_path.exists():
+            raise FileNotFoundError(f"Map file not found: {map_file_path}")
+        
+        map_file = str(map_file_path)
+        Logger.info(f"Using existing map file: {map_file}")
+        
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            
-            # Create temporary map file
-            map_file = create_temporary_map_file(map_data, temp_path)
-            Logger.info(f"Created temporary map file: {map_file}")
             
             # Create temporary start and goal files
             start_file, goal_file = create_temporary_start_goal_files(
@@ -349,35 +360,17 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
             Logger.info(f"Created temporary start file: {start_file}")
             Logger.info(f"Created temporary goal file: {goal_file}")
             
-            # # Debug: Show content of temporary files
-            # Logger.info("=== TEMPORARY FILE CONTENTS ===")
-            # with open(map_file, 'r') as f:
-            #     map_content = f.read()
-            #     lines = map_content.split('\n')
-            #     Logger.info(f"Map file first few lines:")
-            #     for i, line in enumerate(lines[:8]):  # Show first 8 lines
-            #         Logger.info(f"  {line}")
-            #     if len(lines) > 8:
-            #         Logger.info(f"  ... (total {len(lines)} lines)")
-            
-            # with open(start_file, 'r') as f:
-            #     start_content = f.read()
-            #     Logger.info(f"Start file content:\n{start_content}")
-            
-            # with open(goal_file, 'r') as f:
-            #     goal_content = f.read()
-            #     Logger.info(f"Goal file content:\n{goal_content}")
-            # Logger.info("=== END FILE CONTENTS ===")
-            
             # Create environment configuration
             env_config = create_mapf_environment_config(
                 map_file, num_agents, rollout_length,
-                map_weights_path, WPPL_mode
+                WPPL_mode
             )
 
-            map_name = map_file.split("/")[-1].replace(".map", "")
+            # Use the map_name parameter directly since we're using the actual dataset map
+            # (not extracting from temporary file path)
+            Logger.info(f"Using map: {map_name} with {num_agents} agents")
             
-            # Create environment and add our temporary map to the map manager
+            # Create environment and add our map to the map manager
             env = MultiLMAPFEnv("test", 42, env_config, device_ref, None, None)
             
             # Create a Map object and register it with the environment's map manager
@@ -449,33 +442,14 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
                 Logger.debug(f"Stats keys: {list(stats.keys())}")
                 Logger.debug(f"Positions shape: {np.array(positions).shape if len(positions) > 0 else 'None'}")
                 Logger.debug(f"Goals shape: {np.array(goals).shape if len(goals) > 0 else 'None'}")
-                
-                # Check for different success indicators and extract actual data
-                throughput = stats.get("throughput", 0)
-                episode_length = result_data.get("episode_length", rollout_length)
-                
-                # Determine success based on actual goal achievement
-                success = False
-                
+                              
+                print(f"Positions: {positions}")
+                print(f"Goals: {goals}")
                 # Primary method: Check if agents reached their goals using position data
                 if len(positions) > 0 and len(goals) > 0:
                     map_width = map_data.shape[1]
                     success = check_agents_reached_goals(positions, goals, map_width)
                     Logger.info(f"Success via goal achievement check: {success}")
-                
-                # Fallback methods if position data isn't available
-                if not success:
-                    if throughput > 0:
-                        success = True
-                        Logger.info(f"Success via throughput: {throughput}")
-                    elif episode_length < rollout_length:
-                        success = True
-                        Logger.info(f"Success via episode completion: {episode_length} < {rollout_length}")
-                    elif stats.get("success", False) or stats.get("finished", False):
-                        success = True
-                        Logger.info(f"Success via stats indicators")
-                
-                Logger.info(f"Final success determination: {success}, throughput: {throughput}, episode_length: {episode_length}")
                 
                 # Initialize variables
                 solution = []
@@ -488,7 +462,6 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
                     
                     # Convert positions to solution format for metrics computation
                     solution = compute_solution_from_positions(positions, goals, map_height, map_width)
-                    print(solution)
                     
                     # Calculate episode length from actual data
                     actual_episode_length = len(positions) - 1  # Subtract 1 as first position is initial state
@@ -546,25 +519,9 @@ def run_single_test(dataset_dir, map_name, num_agents, test_id, policy_ref, devi
                     
                     crashed = (agent_coll + obs_coll) > 0
                     
-                elif success:
-                    # Success but no position data - use basic metrics
-                    total_steps = num_agents * episode_length
-                    avg_steps = episode_length
-                    max_steps = episode_length
-                    min_steps = episode_length
-                    
-                    total_costs = num_agents * episode_length
-                    avg_costs = episode_length
-                    max_costs = episode_length
-                    min_costs = episode_length
-                    
-                    agent_coll_rate = 0.0
-                    obstacle_coll_rate = 0.0
-                    total_coll_rate = 0.0
-                    crashed = False
-                    
                 else:
                     # Failed case
+                    episode_length = 0
                     total_steps = 0
                     avg_steps = 0
                     max_steps = 0

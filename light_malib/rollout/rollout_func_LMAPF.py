@@ -320,8 +320,8 @@ def rollout_func(
     if WPPL_mode is None:
         # really bad code design...
         WPPL_mode=env.cfg["WPPL"]["mode"]
-    if collect_data:
-        assert WPPL_mode in ["PIBT-RL-LNS-Guide","PIBT-RL-LNS","PIBT-LNS"]
+    # if collect_data:
+    #     assert WPPL_mode in ["PIBT-RL-LNS-Guide","PIBT-RL-LNS","PIBT-LNS"]
     assert WPPL_mode in ["PIBT-RL", "PIBT", "PIBT-LNS","PIBT-RL-LNS","PIBT-RL-LNS-Guide"]
     old_pibt_func=env.get_pibt_func()
     if WPPL_mode not in ["PIBT-RL","PIBT"]:

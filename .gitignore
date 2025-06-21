@@ -11,6 +11,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+Dataset/
+exp_custom_warehouse/
+
 # C extensions
 *.so
 

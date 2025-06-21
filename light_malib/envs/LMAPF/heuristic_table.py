@@ -15,7 +15,7 @@ class HeuristicTable:
         # loc_size*loc_size
         self.main_heuristics=torch.tensor(main_heuristics,dtype=torch.float32,device=device).reshape(self.loc_size,self.loc_size)
         self.loc_idxs=torch.full((self.map.height*self.map.width,),fill_value=-1,dtype=torch.int32,device=device)
-        self.loc_idxs[self.empty_locs]=torch.arange(len(self.empty_locs),dtype=torch.int32,device=device)
+        self.loc_idxs[self.empty_locs.long()]=torch.arange(len(self.empty_locs),dtype=torch.int32,device=device)
         
     def get_heuristics(self, curr_positions, views, target_positions):
         '''
@@ -34,17 +34,17 @@ class HeuristicTable:
         num_out_of_bound=torch.numel(masks)-torch.count_nonzero(masks)
         
         local_views_locs=local_views[...,0]*self.map.width+local_views[...,1]
-        local_views_locs[~masks]=self.empty_locs[torch.arange(num_out_of_bound,dtype=torch.int32)%len(self.empty_locs)]
+        local_views_locs[~masks]=self.empty_locs[torch.arange(num_out_of_bound,dtype=torch.long)%len(self.empty_locs)]
         # num_robots, FOV_height, FOV_width
-        local_view_idxs=self.loc_idxs[local_views_locs]
+        local_view_idxs=self.loc_idxs[local_views_locs.long()]
         
         target_position_locs=target_positions[...,0]*self.map.width+target_positions[...,1]
         # num_robots
-        target_position_idxs=self.loc_idxs[target_position_locs]
+        target_position_idxs=self.loc_idxs[target_position_locs.long()]
         target_position_idxs=target_position_idxs.reshape(-1,*([1]*(local_views.dim()-2))).repeat(1,*local_views.shape[1:-1])
-        
-        heuristics=self.main_heuristics[local_view_idxs,target_position_idxs]
-        
+
+        heuristics=self.main_heuristics[local_view_idxs.long(),target_position_idxs.long()]
+
         # apply masks
         heuristics[~masks]=-1
         
@@ -53,7 +53,7 @@ class HeuristicTable:
         return heuristics, masks, local_views, offsetted_local_views
     
     def get_masks(self, offsetted_local_views):
-        masks=self.padded_graph[offsetted_local_views[...,0],offsetted_local_views[...,1]]==0
+        masks=self.padded_graph[offsetted_local_views[...,0].long(),offsetted_local_views[...,1].long()]==0
         return masks
     
     def get_distances(self, curr_positions, target_positions):

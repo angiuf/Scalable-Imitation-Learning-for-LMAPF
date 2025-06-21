@@ -632,7 +632,7 @@ class LMAPFEnv(BaseEnv):
                 
             if valid_flag:
                 # check if collide with static obstacles
-                if torch.any(self.graph[next_positions[:,0],next_positions[:,1]]==1):
+                if torch.any(self.graph[next_positions[:,0].long(),next_positions[:,1].long()]==1):
                     print("collide with static obstacles")
                     valid_flag=False
                 
